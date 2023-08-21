@@ -1,0 +1,169 @@
+name: Publish
+
+on:
+  workflow_dispatch: {}
+
+env:
+  DOCKER_REGISTRY_NAME: ghcr.io
+  DOCKER_IMAGE_NAME: ${{ github.repository }}
+  RELEASER_CHANGER: 'regex-pattern:version = "$1"@Cargo.toml'
+
+jobs:
+  pre-build:
+    name: Update version name
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.update.outputs.version }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v3
+      - uses: anatawa12/something-releaser@v2
+      - uses: snow-actions/git-config-user@v1.0.0
+
+      - name: update version name
+        id: update
+        run: |-
+          # update version name
+          VERSION="$(get-version)"
+          if ! [[ "$VERSION" = *-SNAPSHOT ]]; then
+            echo 'VERSION IS NOT SNAPSHOT' >&2
+            exit 1
+          fi
+          VERSION="$(version-unsnapshot "$VERSION")"
+          gh-set-output version "$VERSION"
+          gh-export-variable VERSION "$VERSION"
+          cargo metadata --format-version=1 > /dev/null
+          set-version "$VERSION"
+
+      # region changelog
+      - name: Create Changelog
+        id: changelog
+        uses: anatawa12/sh-actions/changelog/prepare-release@master
+        with:
+          version: ${{ env.VERSION }}
+          tag-prefix: v
+          release-note-heading: |
+            Version ${{ env.VERSION }}
+            ---
+      - name: Upload CHANGELOG.md
+        uses: actions/upload-artifact@v3
+        with:
+          name: CHANGELOG
+          path: CHANGELOG.md
+      - run: cp "${{ steps.changelog.outputs.release-note }}" release-note.md
+      - name: Upload release note
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-note
+          path: release-note.md
+      - run: rm release-note.md
+      # endregion changelog
+
+      - name: commit new release
+        id: commit
+        run: |-
+          # commit & tag
+          git add Cargo.toml CHANGELOG.md
+          git commit -m "v$VERSION"
+          git branch releasing
+          git push -u origin releasing
+
+  build-docker:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [pre-build]
+    steps:
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to Docker hub
+        uses: docker/login-action@v1
+        with:
+          registry: ${{ env.DOCKER_REGISTRY_NAME }}
+          username: ${{ github.repository_owner }}
+          password: ${{ github.token }} # github.token 
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v3
+        with:
+          images: ${{ env.DOCKER_REGISTRY_NAME }}/${{ env.DOCKER_IMAGE_NAME }}
+
+      - name: Build & Push
+        uses: docker/build-push-action@v2
+        env:
+          DOCKER_BUILDKIT: 1
+        with:
+          context: ${{ github.server_url }}/${{ github.repository }}.git#releasing
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |-
+            ${{ env.DOCKER_REGISTRY_NAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+            ${{ env.DOCKER_REGISTRY_NAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.pre-build.outputs.version }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: ${{ env.DOCKER_REGISTRY_NAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
+          build-args: BUILDKIT_INLINE_CACHE=1
+
+  publish:
+    name: Publish to GitHub
+    environment:
+      name: master branch
+      url: https://github.com/${{ github.repository }}/releases/v${{ needs.pre-build.outputs.version }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    needs: [build-docker, pre-build]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: 'releasing'
+          fetch-depth: 2
+          token: ${{ secrets.MASTER_GITHUB_PAT }}
+
+      # tools
+      - uses: anatawa12/something-releaser@v2
+      - uses: snow-actions/git-config-user@v1.0.0
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Push tag
+        env:
+          VERSION: ${{ needs.pre-build.outputs.version }}
+        run: |-
+          # set tag and publish current version
+          git tag "v$VERSION"
+          git push && git push --tags
+          # create master and push
+          git switch -c master
+          git fetch origin master --depth=1
+          git log --all --graph
+          git push -u origin master
+
+      - name: download release note for this release
+        uses: actions/download-artifact@v3
+        id: download-release-note
+        with:
+          name: release-note
+
+      - name: create release
+        shell: bash
+        env:
+          VERSION: ${{ needs.pre-build.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTE: ${{ steps.download-release-note.outputs.download-path }}/release-note.md
+        run: |-
+          sleep 1
+          gh release create --verify-tag "v$VERSION" --notes-file "$RELEASE_NOTE"
+
+      - name: Update To Next Version
+        run: |
+          VERSION="$(get-version)"
+          VERSION="$(version-next "$VERSION")"
+          set-version "$(version-snapshot "$VERSION")"
+          git add Cargo.toml
+          git commit -m "prepare for next version: $VERSION"
+          git push
+          git push --delete origin releasing
