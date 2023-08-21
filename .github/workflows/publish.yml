@@ -102,7 +102,7 @@ jobs:
         with:
           context: ${{ github.server_url }}/${{ github.repository }}.git#releasing
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: |-
             ${{ env.DOCKER_REGISTRY_NAME }}/${{ env.DOCKER_IMAGE_NAME }}:latest
             ${{ env.DOCKER_REGISTRY_NAME }}/${{ env.DOCKER_IMAGE_NAME }}:${{ needs.pre-build.outputs.version }}
