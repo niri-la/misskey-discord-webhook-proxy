@@ -3,7 +3,6 @@ use actix_web::web::Data;
 use actix_web::{middleware, post, web, App, HttpResponse, HttpServer, Responder};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 use serde_json::Value as JsonValue;
 type JsonMap = serde_json::Map<String, serde_json::Value>;
@@ -31,7 +30,7 @@ struct MiNote {
     #[serde(rename = "createdAt")]
     created_at: Timestamp,
     text: Option<String>,
-    cw: Option<String>,
+    // cw: Option<String>,
     user: MiUser,
     #[serde(default)]
     files: Vec<MiDriveFile>,
@@ -105,7 +104,7 @@ async fn misskey_to_discord(
         return HttpResponse::build(StatusCode::BAD_REQUEST)
             .body("No 'server' payload found. this proxy requires misskey 2023.9.0-beta.2 or later.");
     };
-    let server = server.trim_end_matches("/");
+    let server = server.trim_end_matches('/');
 
     let Some(note) = payload.get("body")
         .and_then(JsonValue::as_object)
@@ -119,16 +118,12 @@ async fn misskey_to_discord(
             .body("webhokk payload parse error")
     };
 
-    let image = note
-        .files
-        .into_iter()
-        .filter(|x| {
-            matches!(
-                x.r#type.as_str(),
-                "image/jpeg" | "image/png" | "image/gif" | "image/webp"
-            )
-        })
-        .next();
+    let image = note.files.into_iter().find(|x| {
+        matches!(
+            x.r#type.as_str(),
+            "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+        )
+    });
 
     let di_image = image.map(|image| DiEmbedImage { url: image.url });
 
