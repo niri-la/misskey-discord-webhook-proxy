@@ -1,7 +1,7 @@
 use actix_web::http::StatusCode;
 use actix_web::web::Data;
 use actix_web::{middleware, post, web, App, HttpResponse, HttpServer, Responder};
-use reqwest::{Client, Request, Url};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
@@ -174,18 +174,32 @@ async fn misskey_to_discord(
             response.text().await.expect("unparseable error response")
         );
 
-        return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR).body("discord returns error");
+        return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR)
+            .body("discord returns error");
     }
 
     HttpResponse::build(StatusCode::CREATED).body("successfully created")
 }
 
+static DEFAULT_USER_AGENT: &str = concat!(
+    "misskey-discord-webhook-proxy/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/niri-la/misskey-discord-webhook-proxy)"
+);
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
-    // TODO: configure UA and else
-    let http_client = Data::new(Client::new());
+    let client = Client::builder()
+        .user_agent(
+            std::env::var("USER_AGENT")
+                .as_deref()
+                .unwrap_or(DEFAULT_USER_AGENT),
+        )
+        .build()
+        .expect("building http client");
+    let http_client = Data::new(client);
 
     HttpServer::new(move || {
         App::new()
