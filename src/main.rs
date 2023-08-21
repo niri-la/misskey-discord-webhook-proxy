@@ -3,6 +3,8 @@ use actix_web::web::Data;
 use actix_web::{middleware, post, web, App, HttpResponse, HttpServer, Responder};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use std::str::FromStr;
 
 use serde_json::Value as JsonValue;
 type JsonMap = serde_json::Map<String, serde_json::Value>;
@@ -186,6 +188,13 @@ static DEFAULT_USER_AGENT: &str = concat!(
 async fn main() -> std::io::Result<()> {
     env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
 
+    let mut args = std::env::args();
+    let _exe_name = args.next();
+    let addrs = args
+        .map(|x| SocketAddr::from_str(&x))
+        .collect::<Result<Vec<SocketAddr>, _>>()
+        .expect("listen addr invalid");
+
     let client = Client::builder()
         .user_agent(
             std::env::var("USER_AGENT")
@@ -204,7 +213,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(http_client.clone())
             .service(misskey_to_discord)
     })
-    .bind(("127.0.0.1", 8080))?
+    .bind(addrs.as_slice())?
     .run()
     .await
 }
