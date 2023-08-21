@@ -66,8 +66,8 @@ jobs:
           # commit & tag
           git add Cargo.toml CHANGELOG.md
           git commit -m "v$VERSION"
-          git branch releasing --force
-          git push -u origin releasing
+          git branch releasing
+          git push -u origin releasing --force
 
   build-docker:
     name: Build Docker Image
