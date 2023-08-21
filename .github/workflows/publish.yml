@@ -124,7 +124,7 @@ jobs:
         with:
           ref: 'releasing'
           fetch-depth: 2
-          token: ${{ secrets.MASTER_GITHUB_PAT }}
+          # token: ${{ secrets.MASTER_GITHUB_PAT }}
 
       # tools
       - uses: anatawa12/something-releaser@v2
