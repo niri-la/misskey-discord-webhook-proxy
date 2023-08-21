@@ -74,7 +74,7 @@ struct DiEmbedImage {
     url: String,
 }
 
-#[post("/{webhook_id}/{webhook_token}/misskey")]
+#[post("/discord/{webhook_id}/{webhook_token}/misskey")]
 async fn misskey_to_discord(
     path: web::Path<(Snowflake, String)>,
     http_client: Data<Client>,
