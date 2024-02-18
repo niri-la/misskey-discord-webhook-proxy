@@ -267,7 +267,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .app_data(web::JsonConfig::default().limit(4096)) // <- limit size of the payload (global configuration)
             .app_data(http_client.clone())
-            .app_data(dedup_note)
+            .app_data(dedup_note.clone())
             .service(misskey_to_discord)
     })
     .bind(addrs.as_slice())?
