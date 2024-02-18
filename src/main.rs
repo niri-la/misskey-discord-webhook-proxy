@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use actix_web::http::StatusCode;
 use actix_web::web::Data;
 use actix_web::{middleware, post, web, App, HttpResponse, HttpServer, Responder};
@@ -5,11 +6,16 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Mutex;
 
 use serde_json::Value as JsonValue;
 type JsonMap = serde_json::Map<String, serde_json::Value>;
 type Snowflake = u64;
 type Timestamp = chrono::DateTime<chrono::Utc>;
+
+struct DedupNote {
+    by_webhook: Mutex<HashMap<Snowflake, HashSet<(String, String)>>>,
+}
 
 #[derive(Deserialize)]
 struct MiUser {
@@ -78,6 +84,7 @@ struct DiEmbedImage {
 async fn misskey_to_discord(
     path: web::Path<(Snowflake, String)>,
     http_client: Data<Client>,
+    dedup_note: Data<DedupNote>,
     payload: web::Json<JsonMap>,
 ) -> impl Responder {
     let (webhook_id, webhook_token) = path.into_inner();
@@ -99,11 +106,11 @@ async fn misskey_to_discord(
         }
         Some("note" | "reply" | "mention" | "renote") => {
             // simple note webhook
-            proxy_note_to_webhook(&payload, &http_client, server, webhook_id, &webhook_token).await
+            proxy_note_to_webhook(&payload, &http_client, &dedup_note, server, webhook_id, &webhook_token).await
         }
         Some(ty) if ty.starts_with("note@") => {
             // nirila extension: admin other user webhook
-            proxy_note_to_webhook(&payload, &http_client, server, webhook_id, &webhook_token).await
+            proxy_note_to_webhook(&payload, &http_client, &dedup_note, server, webhook_id, &webhook_token).await
         }
         Some(unknown) => {
             return HttpResponse::build(StatusCode::BAD_REQUEST)
@@ -115,6 +122,7 @@ async fn misskey_to_discord(
 async fn proxy_note_to_webhook(
     payload: &JsonMap,
     http_client: &Client,
+    dedup_note: &DedupNote,
     server: &str,
     webhook_id: Snowflake,
     webhook_token: &str,
@@ -130,6 +138,19 @@ async fn proxy_note_to_webhook(
     let Ok(note) = serde_json::from_value::<MiNote>(note.clone()) else {
         return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload parse error");
     };
+
+    {
+        // dedup notes
+        let mut dedup_by_webhook = dedup_note.by_webhook.lock().unwrap();
+        let new = dedup_by_webhook.entry(webhook_id).or_default().insert((
+            server.to_string(),
+            note.id.clone(),
+        ));
+
+        if !new {
+            return HttpResponse::build(StatusCode::OK).body("duplicated note so not sent to discord");
+        }
+    }
 
     let image = note.files.into_iter().find(|x| {
         matches!(
@@ -216,12 +237,18 @@ async fn main() -> std::io::Result<()> {
         .expect("building http client");
     let http_client = Data::new(client);
 
+    let dedup_note = DedupNote {
+        by_webhook: Mutex::new(HashMap::new()),
+    };
+    let dedup_note = Data::new(dedup_note);
+
     HttpServer::new(move || {
         App::new()
             // enable logger
             .wrap(middleware::Logger::default())
             .app_data(web::JsonConfig::default().limit(4096)) // <- limit size of the payload (global configuration)
             .app_data(http_client.clone())
+            .app_data(dedup_note)
             .service(misskey_to_discord)
     })
     .bind(addrs.as_slice())?
