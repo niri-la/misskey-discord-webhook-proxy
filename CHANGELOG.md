@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 ### Added
+- `reply`, `mention` and `renote` support
 
 ### Changed
 
