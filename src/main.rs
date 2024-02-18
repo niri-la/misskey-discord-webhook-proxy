@@ -93,11 +93,11 @@ async fn misskey_to_discord(
     // see https://misskey-hub.net/docs/features/webhook.html
     match payload.get("type").and_then(JsonValue::as_str) {
         None => return HttpResponse::build(StatusCode::BAD_REQUEST).body("type field not found"),
-        Some(ty @ ("follow" | "followed" | "unfollow" | "reply" | "renote" | "mention")) => {
+        Some(ty @ ("follow" | "followed" | "unfollow")) => {
             return HttpResponse::build(StatusCode::BAD_REQUEST)
                 .body(format!("Unsupported event type: {ty}"))
         }
-        Some("note") => {
+        Some("note" | "reply" | "mention" | "renote") => {
             // simple note webhook
             proxy_note_to_webhook(&payload, &http_client, server, webhook_id, &webhook_token).await
         }
@@ -123,9 +123,9 @@ async fn proxy_note_to_webhook(
         .get("body")
         .and_then(JsonValue::as_object)
         .and_then(|x| x.get("note"))
-        else {
-            return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload not found");
-        };
+    else {
+        return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload not found");
+    };
 
     let Ok(note) = serde_json::from_value::<MiNote>(note.clone()) else {
         return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload parse error");
