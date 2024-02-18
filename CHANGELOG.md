@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog].
 ### Added
 
 ### Changed
+- use rustls instead of native-tls
 
 ### Deprecated
 
