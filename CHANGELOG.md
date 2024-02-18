@@ -8,7 +8,6 @@ The format is based on [Keep a Changelog].
 
 ## [Unreleased]
 ### Added
-- `reply`, `mention` and `renote` support
 
 ### Changed
 
@@ -20,6 +19,10 @@ The format is based on [Keep a Changelog].
 
 ### Security
 
+## [0.1.2] - 2024-02-18
+### Added
+- `reply`, `mention` and `renote` support
+
 ## [0.1.1] - 2023-08-21
 ### Added
 - Docker support
@@ -28,6 +31,7 @@ The format is based on [Keep a Changelog].
 ### Added
 - Initial Implementation
 
-[Unreleased]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/niri-la/misskey-discord-webhook-proxy/releases/tag/v0.1.0
