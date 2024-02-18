@@ -5,7 +5,7 @@ WORKDIR /app
 
 RUN cargo build --release
 
-FROM gcr.io/distroless/cc
+FROM gcr.io/distroless/cc-debian12
 
 COPY --from=builder /app/target/release/misskey-discord-webhook-proxy /
 

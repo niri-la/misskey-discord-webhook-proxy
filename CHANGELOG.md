@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog].
 ### Removed
 
 ### Fixed
+- docker image not working due to glibc version mismatch
 
 ### Security
 
