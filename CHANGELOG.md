@@ -10,16 +10,21 @@ The format is based on [Keep a Changelog].
 ### Added
 
 ### Changed
-- use rustls instead of native-tls
 
 ### Deprecated
 
 ### Removed
 
 ### Fixed
-- docker image not working due to lack of openssl
 
 ### Security
+
+## [0.1.3] - 2024-02-18
+### Changed
+- use rustls instead of native-tls
+
+### Fixed
+- docker image not working due to lack of openssl
 
 ## [0.1.2] - 2024-02-18
 ### Added
@@ -33,7 +38,8 @@ The format is based on [Keep a Changelog].
 ### Added
 - Initial Implementation
 
-[Unreleased]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/niri-la/misskey-discord-webhook-proxy/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/niri-la/misskey-discord-webhook-proxy/releases/tag/v0.1.0
