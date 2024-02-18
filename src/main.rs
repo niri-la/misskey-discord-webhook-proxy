@@ -82,6 +82,14 @@ async fn misskey_to_discord(
 ) -> impl Responder {
     let (webhook_id, webhook_token) = path.into_inner();
 
+    // see https://github.com/misskey-dev/misskey/pull/11752
+    let Some(server) = payload.get("server").and_then(JsonValue::as_str) else {
+        return HttpResponse::build(StatusCode::BAD_REQUEST).body(
+            "No 'server' payload found. this proxy requires misskey 2023.9.0-beta.2 or later.",
+        );
+    };
+    let server = server.trim_end_matches('/');
+
     // see https://misskey-hub.net/docs/features/webhook.html
     match payload.get("type").and_then(JsonValue::as_str) {
         None => return HttpResponse::build(StatusCode::BAD_REQUEST).body("type field not found"),
@@ -91,33 +99,36 @@ async fn misskey_to_discord(
         }
         Some("note") => {
             // simple note webhook
+            proxy_note_to_webhook(&payload, &http_client, server, webhook_id, &webhook_token).await
         }
         Some(ty) if ty.starts_with("note@") => {
             // nirila extension: admin other user webhook
+            proxy_note_to_webhook(&payload, &http_client, server, webhook_id, &webhook_token).await
         }
         Some(unknown) => {
             return HttpResponse::build(StatusCode::BAD_REQUEST)
                 .body(format!("Unknown event type: {unknown}"))
         }
     }
+}
 
-    // see https://github.com/misskey-dev/misskey/pull/11752
-    let Some(server) = payload.get("server").and_then(JsonValue::as_str) else {
-        return HttpResponse::build(StatusCode::BAD_REQUEST)
-            .body("No 'server' payload found. this proxy requires misskey 2023.9.0-beta.2 or later.");
-    };
-    let server = server.trim_end_matches('/');
-
-    let Some(note) = payload.get("body")
+async fn proxy_note_to_webhook(
+    payload: &JsonMap,
+    http_client: &Client,
+    server: &str,
+    webhook_id: Snowflake,
+    webhook_token: &str,
+) -> HttpResponse {
+    let Some(note) = payload
+        .get("body")
         .and_then(JsonValue::as_object)
-        .and_then(|x| x.get("note")) else {
-        return HttpResponse::build(StatusCode::BAD_REQUEST)
-            .body("webhokk payload not found")
-    };
+        .and_then(|x| x.get("note"))
+        else {
+            return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload not found");
+        };
 
     let Ok(note) = serde_json::from_value::<MiNote>(note.clone()) else {
-        return HttpResponse::build(StatusCode::BAD_REQUEST)
-            .body("webhokk payload parse error")
+        return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload parse error");
     };
 
     let image = note.files.into_iter().find(|x| {
