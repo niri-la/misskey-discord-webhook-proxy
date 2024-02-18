@@ -1,10 +1,11 @@
-use std::collections::{HashMap, HashSet};
 use actix_web::http::StatusCode;
 use actix_web::web::Data;
 use actix_web::{middleware, post, web, App, HttpResponse, HttpServer, Responder};
+use lru::LruCache;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Mutex;
 
@@ -14,7 +15,7 @@ type Snowflake = u64;
 type Timestamp = chrono::DateTime<chrono::Utc>;
 
 struct DedupNote {
-    by_webhook: Mutex<HashMap<Snowflake, HashSet<(String, String)>>>,
+    by_webhook: Mutex<LruCache<(Snowflake, String, String), ()>>,
 }
 
 #[derive(Deserialize)]
@@ -106,11 +107,27 @@ async fn misskey_to_discord(
         }
         Some("note" | "reply" | "mention" | "renote") => {
             // simple note webhook
-            proxy_note_to_webhook(&payload, &http_client, &dedup_note, server, webhook_id, &webhook_token).await
+            proxy_note_to_webhook(
+                &payload,
+                &http_client,
+                &dedup_note,
+                server,
+                webhook_id,
+                &webhook_token,
+            )
+            .await
         }
         Some(ty) if ty.starts_with("note@") => {
             // nirila extension: admin other user webhook
-            proxy_note_to_webhook(&payload, &http_client, &dedup_note, server, webhook_id, &webhook_token).await
+            proxy_note_to_webhook(
+                &payload,
+                &http_client,
+                &dedup_note,
+                server,
+                webhook_id,
+                &webhook_token,
+            )
+            .await
         }
         Some(unknown) => {
             return HttpResponse::build(StatusCode::BAD_REQUEST)
@@ -142,13 +159,15 @@ async fn proxy_note_to_webhook(
     {
         // dedup notes
         let mut dedup_by_webhook = dedup_note.by_webhook.lock().unwrap();
-        let new = dedup_by_webhook.entry(webhook_id).or_default().insert((
-            server.to_string(),
-            note.id.clone(),
-        ));
-
-        if !new {
-            return HttpResponse::build(StatusCode::OK).body("duplicated note so not sent to discord");
+        let result = dedup_by_webhook.push((webhook_id, server.to_string(), note.id.clone()), ());
+        if result
+            .map(|((hook_id, server, note_id), ())| {
+                hook_id == webhook_id && server == server && note_id == note.id
+            })
+            .unwrap_or(false)
+        {
+            return HttpResponse::build(StatusCode::OK)
+                .body("duplicated note so not sent to discord");
         }
     }
 
@@ -238,7 +257,7 @@ async fn main() -> std::io::Result<()> {
     let http_client = Data::new(client);
 
     let dedup_note = DedupNote {
-        by_webhook: Mutex::new(HashMap::new()),
+        by_webhook: Mutex::new(LruCache::new(NonZeroUsize::new(1024).unwrap())),
     };
     let dedup_note = Data::new(dedup_note);
 
