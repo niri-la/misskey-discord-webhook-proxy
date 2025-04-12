@@ -20,7 +20,7 @@ struct DedupNote {
 
 #[derive(Deserialize)]
 struct MiUser {
-    name: String,
+    name: Option<String>,
     username: String,
     host: Option<String>,
     #[serde(rename = "avatarUrl")]
@@ -45,10 +45,22 @@ struct MiNote {
     files: Vec<MiDriveFile>,
 }
 
+#[derive(Deserialize)]
+struct MiAbuseReportPayload {
+    //id: String,
+    #[serde(rename = "targetUser")]
+    target_user: Option<MiUser>,
+    reporter: Option<MiUser>,
+    comment: String,
+}
+
+// https://discord.com/developers/docs/resources/webhook#execute-webhook-jsonform-params
 #[derive(Serialize)]
 struct DiWebhookPayload {
     embeds: Vec<DiEmbed>,
     allowed_mentions: DiAllowedMentions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -104,6 +116,10 @@ async fn misskey_to_discord(
         Some(ty @ ("follow" | "followed" | "unfollow")) => {
             return HttpResponse::build(StatusCode::BAD_REQUEST)
                 .body(format!("Unsupported event type: {ty}"))
+        }
+        Some("abuseReport") => {
+            // simple note webhook
+            proxy_abuse_report_to_webhook(&payload, &http_client, webhook_id, &webhook_token).await
         }
         Some("note" | "reply" | "mention" | "renote") => {
             // simple note webhook
@@ -189,7 +205,11 @@ async fn proxy_note_to_webhook(
     };
 
     let embed = DiEmbed {
-        title: format!("{} (@{})", note.user.name, note.user.username),
+        title: format!(
+            "{} (@{})",
+            note.user.name.as_ref().unwrap_or(&note.user.username),
+            note.user.username
+        ),
         description: note.text.unwrap_or(String::from("(no content)")),
         url: format!("{server}/notes/{note_id}", note_id = note.id),
         timestamp: note.created_at,
@@ -205,6 +225,82 @@ async fn proxy_note_to_webhook(
         embeds: vec![embed],
         // mentions disallowed
         allowed_mentions: DiAllowedMentions { parse: [] },
+        content: None,
+    };
+
+    let webhook_url = format!("https://discord.com/api/webhooks/{webhook_id}/{webhook_token}");
+
+    let response = http_client
+        .post(webhook_url)
+        .json(&payload)
+        .send()
+        .await
+        .expect("unexpected err");
+
+    if response.status().is_client_error() || response.status().is_server_error() {
+        log::error!(
+            "error response from discord: {}",
+            response.text().await.expect("unparseable error response")
+        );
+
+        return HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR)
+            .body("discord returns error");
+    }
+
+    HttpResponse::build(StatusCode::CREATED).body("successfully created")
+}
+
+async fn proxy_abuse_report_to_webhook(
+    payload: &JsonMap,
+    http_client: &Client,
+    webhook_id: Snowflake,
+    webhook_token: &str,
+) -> HttpResponse {
+    let Some(payload) = payload.get("body") else {
+        println!("no body: ${payload:?}");
+        return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload not found");
+    };
+
+    let Ok(payload) = serde_json::from_value::<MiAbuseReportPayload>(payload.clone()) else {
+        println!(
+            "bad payload: {:?}",
+            serde_json::from_value::<MiAbuseReportPayload>(payload.clone())
+                .err()
+                .unwrap()
+        );
+        return HttpResponse::build(StatusCode::BAD_REQUEST).body("webhokk payload parse error");
+    };
+
+    fn user_args(user: &Option<MiUser>) -> String {
+        if let Some(user) = user {
+            if let Some(host) = &user.host {
+                format!("@{}@{}", user.username, host)
+            } else {
+                format!("@{}", user.username)
+            }
+        } else {
+            "unknown_user".to_string()
+        }
+    }
+
+    let content = format!(
+        concat!(
+            "New abuse report created!\n",
+            "Reporter: {reporter}\n",
+            "Target User: {target}\n",
+            "Comment\n",
+            "{comment}"
+        ),
+        reporter = user_args(&payload.reporter),
+        target = user_args(&payload.target_user),
+        comment = payload.comment,
+    );
+
+    let payload = DiWebhookPayload {
+        embeds: vec![],
+        // mentions disallowed
+        allowed_mentions: DiAllowedMentions { parse: [] },
+        content: Some(content),
     };
 
     let webhook_url = format!("https://discord.com/api/webhooks/{webhook_id}/{webhook_token}");
